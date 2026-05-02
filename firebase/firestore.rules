@@ -1,0 +1,75 @@
+// firebase/firestore.rules
+// Paste this into Firebase Console → Firestore → Rules tab → Publish
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── USERS ──────────────────────────────────────────────────
+    // Students/Teachers can only read and write their own profile
+    match /users/{userId} {
+      allow read:  if request.auth != null
+                   && request.auth.uid == userId;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId;
+      // Admins can read all profiles
+      allow read:  if request.auth != null
+                   && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ── CLASSES ────────────────────────────────────────────────
+    // All logged-in users can read classes
+    // Only admin can create/edit classes (use Firebase Console for now)
+    match /classes/{classId} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ── SESSIONS ───────────────────────────────────────────────
+    // Teachers can create and update sessions for their classes
+    // All logged-in users can read sessions
+    match /sessions/{sessionId} {
+      allow read:  if request.auth != null;
+      allow create: if request.auth != null
+                   && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+      allow update: if request.auth != null
+                   && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'
+                   || resource.data.teacherId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    // ── ATTENDANCE ─────────────────────────────────────────────
+    // Students can only create their own records
+    // Teachers can read all records and update (override) status
+    // No deletes ever
+    match /attendance/{recordId} {
+      allow create: if request.auth != null
+                   && request.resource.data.userId == request.auth.uid
+                   && request.resource.data.keys().hasAll([
+                        'sessionId', 'classId', 'userId', 'studentId',
+                        'timestamp', 'status', 'deviceId'
+                      ]);
+      allow read:   if request.auth != null
+                   && (resource.data.userId == request.auth.uid
+                   || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher'
+                   || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+      allow update: if request.auth != null
+                   && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+      allow delete: if false;
+    }
+
+    // ── ALERTS ─────────────────────────────────────────────────
+    // Users can only read their own alerts and mark them as read
+    // System/teachers can create alerts
+    match /alerts/{alertId} {
+      allow read:   if request.auth != null
+                   && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null
+                   && resource.data.userId == request.auth.uid
+                   && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if false;
+    }
+  }
+}

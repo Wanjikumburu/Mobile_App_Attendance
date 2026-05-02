@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "836132321200",
+    "project_id": "attendance-app-peny-2026-e309c",
+    "storage_bucket": "attendance-app-peny-2026-e309c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:836132321200:android:4d9264fcb22b09e5b48875",
+        "android_client_info": {
+          "package_name": "com.example.attendance_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCW0JF-PGJSIoIEftE0vct_gwAUnlJiaQk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
