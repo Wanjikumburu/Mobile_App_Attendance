@@ -23,8 +23,8 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
   final BluetoothService  _bluetoothService  = BluetoothService();
 
   SessionModel? _session;
-  Timer? _timer;
-  int _secondsRemaining = 0;
+  Timer?        _timer;
+  int           _secondsRemaining = 0;
 
   @override
   void initState() {
@@ -35,17 +35,25 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
   Future<void> _loadSession() async {
     _session = await _sessionService
         .getActiveSession(widget.classData.classId);
+
     if (_session != null) {
+      // ── KEY CHANGE: calculate remaining time from Firestore ──
+      // closesAt is computed from openedAt + durationMinutes
+      // both of which come from Firestore — not the device timer.
+      // This means the countdown is accurate even if the teacher
+      // logged out and back in, or switched devices.
       _secondsRemaining =
           _session!.closesAt.difference(DateTime.now()).inSeconds;
       if (_secondsRemaining < 0) _secondsRemaining = 0;
       _startTimer();
     }
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _startTimer() {
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
       if (_secondsRemaining > 0) {
         setState(() => _secondsRemaining--);
       } else {
@@ -61,11 +69,33 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
     _bluetoothService.stopBeacon();
     if (mounted) {
       _snack('Session closed automatically.', error: false);
+      // Stay on screen so teacher can see final attendance
+      setState(() {});
     }
   }
 
   Future<void> _manualClose() async {
     if (_session == null) return;
+    bool confirm = await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Close Session?'),
+            content: const Text(
+                'This will end the session immediately. Students will no longer be able to mark attendance.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Close',
+                      style: TextStyle(color: Colors.red))),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirm) return;
     _timer?.cancel();
     await _sessionService.closeSession(_session!.sessionId);
     _bluetoothService.stopBeacon();
@@ -77,6 +107,11 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
 
   @override
   void dispose() {
+    // ── KEY CHANGE: cancelling the timer does NOT close the
+    // session in Firestore. The session stays open and will be
+    // expired by expireOldSessions() when anyone next checks.
+    // This means teacher can log out freely without killing
+    // the session for students.
     _timer?.cancel();
     super.dispose();
   }
@@ -107,33 +142,42 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
           TextButton(
             onPressed: _manualClose,
             child: const Text('Close Session',
-                style: TextStyle(color: Colors.white,
-                    fontWeight: FontWeight.bold)),
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
       body: _session == null
           ? const Center(child: CircularProgressIndicator())
           : Column(children: [
-              // Timer Banner
+              // ── Timer Banner ─────────────────────────────────
               Container(
                 width: double.infinity,
-                color: AppColors.teacherColor,
+                color: _secondsRemaining > 60
+                    ? AppColors.teacherColor
+                    : Colors.red, // turns red in last minute
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Column(children: [
                   Text(_timerDisplay,
-                      style: const TextStyle(color: Colors.white,
-                          fontSize: 48, fontWeight: FontWeight.bold,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 48,
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'monospace')),
-                  const Text('Session closes in',
-                      style: TextStyle(color: Colors.white70)),
+                  Text(
+                    _secondsRemaining > 0
+                        ? 'Session closes in'
+                        : 'Session closed',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                 ]),
               ),
-              // Counts Row
+              // ── Counts Row ───────────────────────────────────
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: StreamBuilder<SessionModel?>(
-                  stream: _sessionService.sessionStream(_session!.sessionId),
+                  stream:
+                      _sessionService.sessionStream(_session!.sessionId),
                   builder: (context, snap) {
                     SessionModel? live = snap.data ?? _session;
                     return Row(children: [
@@ -150,14 +194,14 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
                   },
                 ),
               ),
-              // Live Attendance List
+              // ── Live Attendance List ─────────────────────────
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text('Live Attendance',
-                      style: TextStyle(fontSize: 16,
-                          fontWeight: FontWeight.bold)),
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
               ),
               Expanded(
@@ -181,14 +225,20 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
                       itemCount: records.length,
                       itemBuilder: (context, i) {
                         AttendanceModel r = records[i];
-                        Color c = r.isPresent ? AppColors.present
-                            : r.isLate ? AppColors.late : AppColors.absent;
+                        Color c = r.isPresent
+                            ? AppColors.present
+                            : r.isLate
+                                ? AppColors.late
+                                : AppColors.absent;
                         return ListTile(
                           leading: CircleAvatar(
                             backgroundColor: c.withOpacity(0.15),
-                            child: Text(r.studentName.isNotEmpty
-                                ? r.studentName[0] : '?',
-                                style: TextStyle(color: c,
+                            child: Text(
+                                r.studentName.isNotEmpty
+                                    ? r.studentName[0]
+                                    : '?',
+                                style: TextStyle(
+                                    color: c,
                                     fontWeight: FontWeight.bold)),
                           ),
                           title: Text(r.studentName,
@@ -203,7 +253,8 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(r.status.toUpperCase(),
-                                style: TextStyle(color: c,
+                                style: TextStyle(
+                                    color: c,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 11)),
                           ),
@@ -218,18 +269,21 @@ class _LiveSessionScreenState extends State<LiveSessionScreen> {
   }
 
   Widget _countCard(String value, String label, Color color) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(children: [
-        Text(value, style: TextStyle(fontSize: 28,
-            fontWeight: FontWeight.bold, color: color)),
-        Text(label, style: TextStyle(color: color, fontSize: 12)),
-      ]),
-    ),
-  );
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Column(children: [
+            Text(value,
+                style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: color)),
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
+          ]),
+        ),
+      );
 }

@@ -27,6 +27,15 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // ── Clear fields whenever this screen becomes active again ─
+  // This ensures switching accounts (teacher → student) always
+  // starts with empty fields — no stale credentials
+  void _clearFields() {
+    _emailController.clear();
+    _passwordController.clear();
+    _formKey.currentState?.reset();
+  }
+
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
@@ -60,12 +69,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
     switch (result) {
       case BiometricResult.success:
+        // main.dart StreamBuilder auto-navigates
         break;
       case BiometricResult.notSupported:
         _snack('Biometric not supported on this device.');
         break;
       case BiometricResult.notEnrolled:
-        _snack('No fingerprint set up. Use password instead.');
+        _snack('No fingerprint enrolled. Go to phone Settings to add one.');
+        break;
+      case BiometricResult.noSavedCredentials:
+        _snack('Login with your password first to enable biometric login.');
+        break;
+      case BiometricResult.credentialsExpired:
+        _snack('Your password changed. Please login with password to re-enable biometric.');
         break;
       default:
         _snack('Biometric failed. Try again.');
@@ -101,12 +117,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 20),
                 const Text(AppStrings.appName,
-                    style: TextStyle(fontSize: 32,
+                    style: TextStyle(
+                        fontSize: 32,
                         fontWeight: FontWeight.bold,
                         color: AppColors.primary)),
                 const Text(AppStrings.appTagline,
                     style: TextStyle(color: Colors.grey)),
                 const SizedBox(height: 48),
+
                 // Email
                 TextFormField(
                   controller: _emailController,
@@ -120,18 +138,21 @@ class _LoginScreenState extends State<LoginScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
+
                 // Password
                 TextFormField(
                   controller: _passwordController,
                   obscureText: !_passwordVisible,
                   decoration: _deco(AppStrings.password,
-                      'Min. 6 characters', Icons.lock_outline)
-                    .copyWith(suffixIcon: IconButton(
-                      icon: Icon(_passwordVisible
-                          ? Icons.visibility_off : Icons.visibility),
-                      onPressed: () => setState(
-                          () => _passwordVisible = !_passwordVisible),
-                    )),
+                          'Min. 6 characters', Icons.lock_outline)
+                      .copyWith(
+                          suffixIcon: IconButton(
+                    icon: Icon(_passwordVisible
+                        ? Icons.visibility_off
+                        : Icons.visibility),
+                    onPressed: () => setState(
+                        () => _passwordVisible = !_passwordVisible),
+                  )),
                   validator: (v) {
                     if (v == null || v.isEmpty) return 'Enter your password';
                     if (v.length < 6) return 'Min 6 characters';
@@ -139,6 +160,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   },
                 ),
                 const SizedBox(height: 8),
+
                 // Forgot password
                 Align(
                   alignment: Alignment.centerRight,
@@ -157,15 +179,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
+
                 // Login button
                 _primaryButton(AppStrings.login, _isLoading, _handleLogin),
                 const SizedBox(height: 16),
                 _divider(),
                 const SizedBox(height: 16),
+
                 // Biometric button
                 _outlineButton(AppStrings.biometricLogin,
                     Icons.fingerprint, _handleBiometric),
                 const SizedBox(height: 32),
+
                 // Register link
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -173,9 +198,25 @@ class _LoginScreenState extends State<LoginScreen> {
                     const Text(AppStrings.noAccount,
                         style: TextStyle(color: Colors.grey)),
                     GestureDetector(
-                      onTap: () => Navigator.push(context,
+                      onTap: () async {
+                        // Navigate to register and wait for result
+                        final String? registeredEmail =
+                            await Navigator.push<String>(
+                          context,
                           MaterialPageRoute(
-                              builder: (_) => const RegisterScreen())),
+                              builder: (_) => const RegisterScreen()),
+                        );
+                        // Clear fields first
+                        _clearFields();
+                        // Auto-fill email if registration was successful
+                        if (registeredEmail != null &&
+                            registeredEmail.isNotEmpty) {
+                          _emailController.text = registeredEmail;
+                          _snack(
+                              'Account created! Enter your password to login.',
+                              error: false);
+                        }
+                      },
                       child: const Text(AppStrings.register,
                           style: TextStyle(
                               color: AppColors.primary,
@@ -193,18 +234,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
   InputDecoration _deco(String label, String hint, IconData icon) =>
       InputDecoration(
-        labelText: label, hintText: hint,
+        labelText: label,
+        hintText: hint,
         prefixIcon: Icon(icon),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        border:
+            OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+          borderSide:
+              const BorderSide(color: AppColors.primary, width: 2),
         ),
       );
 
-  Widget _primaryButton(String label, bool loading, VoidCallback onTap) =>
+  Widget _primaryButton(
+          String label, bool loading, VoidCallback onTap) =>
       SizedBox(
-        width: double.infinity, height: 52,
+        width: double.infinity,
+        height: 52,
         child: ElevatedButton(
           onPressed: loading ? null : onTap,
           style: ElevatedButton.styleFrom(
@@ -214,22 +260,28 @@ class _LoginScreenState extends State<LoginScreen> {
                 borderRadius: BorderRadius.circular(12)),
           ),
           child: loading
-              ? const SizedBox(height: 22, width: 22,
+              ? const SizedBox(
+                  height: 22,
+                  width: 22,
                   child: CircularProgressIndicator(
                       color: Colors.white, strokeWidth: 2.5))
-              : Text(label, style: const TextStyle(
-                  fontSize: 16, fontWeight: FontWeight.bold)),
+              : Text(label,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold)),
         ),
       );
 
-  Widget _outlineButton(String label, IconData icon, VoidCallback onTap) =>
+  Widget _outlineButton(
+          String label, IconData icon, VoidCallback onTap) =>
       SizedBox(
-        width: double.infinity, height: 52,
+        width: double.infinity,
+        height: 52,
         child: OutlinedButton.icon(
           onPressed: onTap,
           icon: Icon(icon, color: AppColors.primary),
-          label: Text(label, style: const TextStyle(
-              color: AppColors.primary, fontSize: 16)),
+          label: Text(label,
+              style: const TextStyle(
+                  color: AppColors.primary, fontSize: 16)),
           style: OutlinedButton.styleFrom(
             side: const BorderSide(color: AppColors.primary),
             shape: RoundedRectangleBorder(
@@ -239,9 +291,10 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
   Widget _divider() => Row(children: const [
-    Expanded(child: Divider()),
-    Padding(padding: EdgeInsets.symmetric(horizontal: 12),
-        child: Text('OR', style: TextStyle(color: Colors.grey))),
-    Expanded(child: Divider()),
-  ]);
+        Expanded(child: Divider()),
+        Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: Text('OR', style: TextStyle(color: Colors.grey))),
+        Expanded(child: Divider()),
+      ]);
 }

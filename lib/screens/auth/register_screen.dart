@@ -12,14 +12,14 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final AuthService _auth           = AuthService();
-  final _formKey                    = GlobalKey<FormState>();
-  final _nameController             = TextEditingController();
-  final _studentIdController        = TextEditingController();
-  final _emailController            = TextEditingController();
-  final _departmentController       = TextEditingController();
-  final _passwordController         = TextEditingController();
-  final _confirmPasswordController  = TextEditingController();
+  final AuthService _auth          = AuthService();
+  final _formKey                   = GlobalKey<FormState>();
+  final _nameController            = TextEditingController();
+  final _studentIdController       = TextEditingController();
+  final _emailController           = TextEditingController();
+  final _departmentController      = TextEditingController();
+  final _passwordController        = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   String _selectedRole = 'student';
   bool _isLoading      = false;
@@ -56,7 +56,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       case AuthResult.success:
         _snack('Account created! ✅', error: false);
         await Future.delayed(const Duration(seconds: 1));
-        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          // ── Return the registered email to login screen ────
+          // Login screen uses this to auto-fill the email field
+          // so the user just needs to type their password
+          Navigator.pop(context, _emailController.text.trim());
+        }
         break;
       case AuthResult.emailInUse:
         _snack('Email already registered.');
@@ -90,58 +95,61 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Create Account',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                    style: TextStyle(
+                        fontSize: 28, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
                 const Text('Register with your university details',
                     style: TextStyle(color: Colors.grey)),
                 const SizedBox(height: 28),
 
-                // ── Role Selector ────────────────────────────
+                // ── Role Selector ─────────────────────────────
                 const Text('I am a...',
                     style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _roleChip('student', AppStrings.student,
-                        Icons.school, AppColors.studentColor),
-                    const SizedBox(width: 8),
-                    _roleChip('teacher', AppStrings.teacher,
-                        Icons.person, AppColors.teacherColor),
-                    const SizedBox(width: 8),
-                    _roleChip('admin', AppStrings.admin,
-                        Icons.admin_panel_settings, AppColors.adminColor),
-                  ],
-                ),
+                Row(children: [
+                  _roleChip('student', AppStrings.student,
+                      Icons.school, AppColors.studentColor),
+                  const SizedBox(width: 8),
+                  _roleChip('teacher', AppStrings.teacher,
+                      Icons.person, AppColors.teacherColor),
+                  const SizedBox(width: 8),
+                  _roleChip('admin', AppStrings.admin,
+                      Icons.admin_panel_settings, AppColors.adminColor),
+                ]),
                 const SizedBox(height: 20),
 
-                // ── Name ─────────────────────────────────────
+                // ── Full Name ──────────────────────────────────
                 _field(_nameController, 'Full Name', 'Ali Hassan',
                     Icons.person_outline,
-                    validator: (v) => v!.isEmpty ? 'Enter name' : null),
+                    validator: (v) =>
+                        v!.isEmpty ? 'Enter name' : null),
                 const SizedBox(height: 16),
 
-                // ── Student ID (students only) ────────────────
+                // ── Student ID (students only) ─────────────────
                 if (_selectedRole == 'student') ...[
-                  _field(_studentIdController, 'Student ID', '2021-CS-045',
-                      Icons.badge_outlined,
-                      validator: (v) => v!.isEmpty ? 'Enter student ID' : null),
+                  _field(_studentIdController, 'Student ID',
+                      '2021-CS-045', Icons.badge_outlined,
+                      validator: (v) =>
+                          v!.isEmpty ? 'Enter student ID' : null),
                   const SizedBox(height: 16),
                 ],
 
-                // ── Department ───────────────────────────────
+                // ── Department ────────────────────────────────
                 _field(_departmentController, 'Department',
                     'Computer Science', Icons.business,
-                    validator: (v) => v!.isEmpty ? 'Enter department' : null),
+                    validator: (v) =>
+                        v!.isEmpty ? 'Enter department' : null),
                 const SizedBox(height: 16),
 
-                // ── Email ────────────────────────────────────
+                // ── Email ─────────────────────────────────────
                 _field(_emailController, AppStrings.email,
                     'email@university.edu', Icons.email_outlined,
                     type: TextInputType.emailAddress,
@@ -152,31 +160,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     }),
                 const SizedBox(height: 16),
 
-                // ── Password ─────────────────────────────────
-                _passField(_passwordController, 'Password',
-                    _passVisible, () => setState(() => _passVisible = !_passVisible),
-                    validator: (v) {
-                      if (v!.isEmpty)  return 'Enter password';
-                      if (v.length < 6) return 'Min 6 characters';
-                      return null;
-                    }),
+                // ── Password ──────────────────────────────────
+                _passField(
+                  _passwordController,
+                  'Password',
+                  _passVisible,
+                  () => setState(() => _passVisible = !_passVisible),
+                  validator: (v) {
+                    if (v!.isEmpty) return 'Enter password';
+                    if (v.length < 6) return 'Min 6 characters';
+                    return null;
+                  },
+                ),
                 const SizedBox(height: 16),
 
-                // ── Confirm Password ──────────────────────────
-                _passField(_confirmPasswordController, 'Confirm Password',
-                    _confirmVisible,
-                    () => setState(() => _confirmVisible = !_confirmVisible),
-                    validator: (v) {
-                      if (v != _passwordController.text) {
-                        return 'Passwords do not match';
-                      }
-                      return null;
-                    }),
+                // ── Confirm Password ───────────────────────────
+                _passField(
+                  _confirmPasswordController,
+                  'Confirm Password',
+                  _confirmVisible,
+                  () => setState(
+                      () => _confirmVisible = !_confirmVisible),
+                  validator: (v) {
+                    if (v != _passwordController.text) {
+                      return 'Passwords do not match';
+                    }
+                    return null;
+                  },
+                ),
                 const SizedBox(height: 32),
 
-                // ── Register Button ───────────────────────────
+                // ── Register Button ────────────────────────────
                 SizedBox(
-                  width: double.infinity, height: 52,
+                  width: double.infinity,
+                  height: 52,
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _handleRegister,
                     style: ElevatedButton.styleFrom(
@@ -186,11 +203,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           borderRadius: BorderRadius.circular(12)),
                     ),
                     child: _isLoading
-                        ? const SizedBox(height: 22, width: 22,
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
                             child: CircularProgressIndicator(
                                 color: Colors.white, strokeWidth: 2.5))
                         : const Text('Create Account',
-                            style: TextStyle(fontSize: 16,
+                            style: TextStyle(
+                                fontSize: 16,
                                 fontWeight: FontWeight.bold)),
                   ),
                 ),
@@ -203,7 +223,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     GestureDetector(
                       onTap: () => Navigator.pop(context),
                       child: const Text(AppStrings.login,
-                          style: TextStyle(color: AppColors.primary,
+                          style: TextStyle(
+                              color: AppColors.primary,
                               fontWeight: FontWeight.bold)),
                     ),
                   ],
@@ -216,52 +237,69 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _roleChip(String value, String label, IconData icon, Color color) {
+  Widget _roleChip(
+      String value, String label, IconData icon, Color color) {
     bool selected = _selectedRole == value;
     return GestureDetector(
       onTap: () => setState(() => _selectedRole = value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? color : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? color : Colors.grey.shade300),
+          border: Border.all(
+              color: selected ? color : Colors.grey.shade300),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 16,
+          Icon(icon,
+              size: 16,
               color: selected ? Colors.white : Colors.grey),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(
-              color: selected ? Colors.white : Colors.grey,
-              fontWeight: FontWeight.w600, fontSize: 13)),
+          Text(label,
+              style: TextStyle(
+                  color: selected ? Colors.white : Colors.grey,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13)),
         ]),
       ),
     );
   }
 
-  Widget _field(TextEditingController ctrl, String label, String hint,
-      IconData icon,
-      {TextInputType type = TextInputType.text,
-      String? Function(String?)? validator}) =>
+  Widget _field(
+    TextEditingController ctrl,
+    String label,
+    String hint,
+    IconData icon, {
+    TextInputType type = TextInputType.text,
+    String? Function(String?)? validator,
+  }) =>
       TextFormField(
         controller: ctrl,
         keyboardType: type,
         decoration: InputDecoration(
-          labelText: label, hintText: hint,
+          labelText: label,
+          hintText: hint,
           prefixIcon: Icon(icon),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12)),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppColors.primary, width: 2),
+            borderSide:
+                const BorderSide(color: AppColors.primary, width: 2),
           ),
         ),
         validator: validator,
       );
 
-  Widget _passField(TextEditingController ctrl, String label,
-      bool visible, VoidCallback toggle,
-      {String? Function(String?)? validator}) =>
+  Widget _passField(
+    TextEditingController ctrl,
+    String label,
+    bool visible,
+    VoidCallback toggle, {
+    String? Function(String?)? validator,
+  }) =>
       TextFormField(
         controller: ctrl,
         obscureText: !visible,
@@ -269,13 +307,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
           labelText: label,
           prefixIcon: const Icon(Icons.lock_outline),
           suffixIcon: IconButton(
-            icon: Icon(visible ? Icons.visibility_off : Icons.visibility),
+            icon: Icon(
+                visible ? Icons.visibility_off : Icons.visibility),
             onPressed: toggle,
           ),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12)),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppColors.primary, width: 2),
+            borderSide:
+                const BorderSide(color: AppColors.primary, width: 2),
           ),
         ),
         validator: validator,

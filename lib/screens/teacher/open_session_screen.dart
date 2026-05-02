@@ -15,7 +15,7 @@ class OpenSessionScreen extends StatefulWidget {
 }
 
 class _OpenSessionScreenState extends State<OpenSessionScreen> {
-  final SessionService     _sessionService   = SessionService();
+  final SessionService      _sessionService   = SessionService();
   final bt.BluetoothService _bluetoothService = bt.BluetoothService();
 
   int  _durationMinutes   = 5;
@@ -24,13 +24,13 @@ class _OpenSessionScreenState extends State<OpenSessionScreen> {
   bool _beaconStarted     = false;
 
   Future<void> _openSession() async {
+    print('🟡 _openSession tapped');
     setState(() => _isLoading = true);
 
-    // Start Bluetooth beacon
-    bool btStarted = await _bluetoothService.startBeacon(
-        widget.classData.classId);
-    setState(() => _beaconStarted = btStarted);
-
+    // ── Step 1: Save session to Firestore FIRST ──────────────
+    // Bluetooth is secondary — session must exist in Firestore
+    // regardless of whether Bluetooth works or not.
+    print('🟡 calling sessionService.openSession...');
     SessionResult result = await _sessionService.openSession(
       classId:           widget.classData.classId,
       className:         widget.classData.name,
@@ -38,11 +38,30 @@ class _OpenSessionScreenState extends State<OpenSessionScreen> {
       lateWindowMinutes: _lateWindowMinutes,
       bluetoothId:       widget.classData.classId,
     );
+    print('🟡 openSession result: $result');
+
+    // ── Step 2: Start Bluetooth beacon AFTER Firestore write ─
+    // If Bluetooth fails, session still exists — students can
+    // still mark attendance via GPS alone.
+    if (result == SessionResult.success) {
+      print('🟡 starting bluetooth beacon...');
+      bool btStarted = await _bluetoothService.startBeacon(
+          widget.classData.classId)
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              print('⚠️ Bluetooth beacon timed out — continuing without it');
+              return false;
+            },
+          );
+      setState(() => _beaconStarted = btStarted);
+      print('🟡 bluetooth beacon started: $btStarted');
+    }
 
     setState(() => _isLoading = false);
 
     if (result == SessionResult.success) {
-      // Go to live session screen
+      print('✅ Navigating to LiveSessionScreen');
       if (mounted) {
         Navigator.pushReplacement(context, MaterialPageRoute(
             builder: (_) => LiveSessionScreen(
@@ -50,8 +69,10 @@ class _OpenSessionScreenState extends State<OpenSessionScreen> {
       }
     } else if (result == SessionResult.alreadyOpen) {
       _snack('A session is already open for this class.');
+    } else if (result == SessionResult.notAuthorized) {
+      _snack('Not authorized. Please log out and log in again.');
     } else {
-      _snack('Failed to open session.');
+      _snack('Failed to open session. Check your connection and try again.');
     }
   }
 
@@ -83,11 +104,11 @@ class _OpenSessionScreenState extends State<OpenSessionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(widget.classData.name,
-                      style: const TextStyle(fontSize: 18,
-                          fontWeight: FontWeight.bold)),
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold)),
                   Text('${widget.classData.code} · ${widget.classData.schedule}',
                       style: const TextStyle(color: Colors.grey)),
-                  Text('${widget.classData.enrolledStudents.length} students',
+                  Text('${widget.classData.enrolledStudents.length} students enrolled',
                       style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
@@ -108,11 +129,13 @@ class _OpenSessionScreenState extends State<OpenSessionScreen> {
                       horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
                     color: selected
-                        ? AppColors.teacherColor : Colors.grey.shade100,
+                        ? AppColors.teacherColor
+                        : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                         color: selected
-                            ? AppColors.teacherColor : Colors.grey.shade300),
+                            ? AppColors.teacherColor
+                            : Colors.grey.shade300),
                   ),
                   child: Text('$mins min',
                       style: TextStyle(
@@ -139,11 +162,13 @@ class _OpenSessionScreenState extends State<OpenSessionScreen> {
                       horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
                     color: selected
-                        ? AppColors.late : Colors.grey.shade100,
+                        ? AppColors.late
+                        : Colors.grey.shade100,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                         color: selected
-                            ? AppColors.late : Colors.grey.shade300),
+                            ? AppColors.late
+                            : Colors.grey.shade300),
                   ),
                   child: Text(mins == 0 ? 'None' : '+$mins min',
                       style: TextStyle(
@@ -165,27 +190,36 @@ class _OpenSessionScreenState extends State<OpenSessionScreen> {
                 Icon(Icons.bluetooth,
                     color: _beaconStarted ? Colors.blue : Colors.grey),
                 const SizedBox(width: 10),
-                Text(_beaconStarted
-                    ? '📡 Bluetooth beacon will broadcast'
-                    : '📡 Bluetooth beacon will start when session opens',
-                    style: const TextStyle(fontSize: 13)),
+                Expanded(
+                  child: Text(
+                    _beaconStarted
+                        ? '📡 Bluetooth beacon broadcasting'
+                        : '📡 Bluetooth beacon will start when session opens',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
               ]),
             ),
             const Spacer(),
 
             // Open Session Button
             SizedBox(
-              width: double.infinity, height: 56,
+              width: double.infinity,
+              height: 56,
               child: ElevatedButton.icon(
                 onPressed: _isLoading ? null : _openSession,
                 icon: _isLoading
-                    ? const SizedBox(height: 20, width: 20,
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
                         child: CircularProgressIndicator(
                             color: Colors.white, strokeWidth: 2.5))
                     : const Icon(Icons.play_arrow),
-                label: Text(_isLoading ? 'Opening...' : 'Open Session',
-                    style: const TextStyle(fontSize: 16,
-                        fontWeight: FontWeight.bold)),
+                label: Text(
+                  _isLoading ? 'Opening...' : 'Open Session',
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.teacherColor,
                   foregroundColor: Colors.white,

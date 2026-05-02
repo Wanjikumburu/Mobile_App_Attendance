@@ -13,15 +13,20 @@ class SessionService {
   // OPEN SESSION (Teacher)
   // ────────────────────────────────────────────────────────────
   Future<SessionResult> openSession({
-    required String classId,
-    required String className,
-    required int durationMinutes,
-    int lateWindowMinutes = 2,
-    String bluetoothId    = '',
-  }) async {
-    try {
-      User? teacher = _auth.currentUser;
-      if (teacher == null) return SessionResult.notAuthorized;
+  required String classId,
+  required String className,
+  required int durationMinutes,
+  int lateWindowMinutes = 2,
+  String bluetoothId    = '',
+}) async {
+  print('🔵 openSession called for classId: $classId'); // ← ADD THIS
+  try {
+    User? teacher = _auth.currentUser;
+    print('🔵 teacher uid: ${teacher?.uid}'); // ← ADD THIS
+    if (teacher == null) return SessionResult.notAuthorized;
+
+    await expireOldSessions();
+    print('🔵 expireOldSessions done'); // ← ADD THIS
 
       // Check if session already open for this class
       QuerySnapshot existing = await _db
@@ -72,10 +77,50 @@ class SessionService {
   }
 
   // ────────────────────────────────────────────────────────────
+  // AUTO-EXPIRE STALE OPEN SESSIONS
+  // Called when student opens attendance screen or teacher
+  // opens a new session — ensures sessions close on time
+  // even if the teacher's device timer was cancelled (e.g. logout)
+  // ────────────────────────────────────────────────────────────
+  Future<void> expireOldSessions() async {
+    try {
+      QuerySnapshot snap = await _db
+          .collection('sessions')
+          .where('status', isEqualTo: 'open')
+          .get();
+
+      for (var doc in snap.docs) {
+        final data      = doc.data() as Map<String, dynamic>;
+        // openedAt may still be null if serverTimestamp hasn't resolved
+        if (data['openedAt'] == null) continue;
+
+        final openedAt  = (data['openedAt'] as Timestamp).toDate();
+        final duration  = (data['durationMinutes'] ?? 5) as int;
+        final late      = (data['lateWindowMinutes'] ?? 2) as int;
+        final expiresAt = openedAt.add(
+            Duration(minutes: duration + late)); // include late window
+
+        if (DateTime.now().isAfter(expiresAt)) {
+          await doc.reference.update({
+            'status':   'closed',
+            'closedAt': FieldValue.serverTimestamp(),
+          });
+          print('⏰ Session auto-expired: ${doc.id}');
+        }
+      }
+    } catch (e) {
+      print('expireOldSessions error: $e');
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────
   // GET ACTIVE SESSION FOR A CLASS
   // ────────────────────────────────────────────────────────────
   Future<SessionModel?> getActiveSession(String classId) async {
     try {
+      // Always expire stale sessions before checking
+      await expireOldSessions();
+
       QuerySnapshot snap = await _db
           .collection('sessions')
           .where('classId', isEqualTo: classId)

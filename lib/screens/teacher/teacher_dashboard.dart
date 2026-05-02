@@ -48,10 +48,14 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
   }
 
   Future<void> _logout() async {
-    await _authService.logout();
-    if (mounted) Navigator.pushAndRemoveUntil(context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false);
+  await _authService.logout();
+  if (mounted) {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false, // removes ALL previous routes
+    );
   }
+}
 
   void _showAddClassSheet() {
     showModalBottomSheet(
@@ -86,6 +90,51 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
           const SnackBar(content: Text('Class deleted.'), behavior: SnackBarBehavior.floating));
     }
   }
+
+  // ── Show enrollment credentials to teacher ─────────────────
+  void _showEnrollmentInfo(ClassModel cls) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Enrollment Credentials'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Share these with your students to let them enroll:',
+                style: TextStyle(color: Colors.grey, fontSize: 13)),
+            const SizedBox(height: 16),
+            _credentialRow('Class Code', cls.code, Icons.tag),
+            const SizedBox(height: 12),
+            _credentialRow('Password', cls.enrollmentPassword, Icons.lock_outline),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _credentialRow(String label, String value, IconData icon) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.teacherColor.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.teacherColor.withOpacity(0.2)),
+        ),
+        child: Row(children: [
+          Icon(icon, size: 18, color: AppColors.teacherColor),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ]),
+        ]),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -190,6 +239,15 @@ class _TeacherDashboardState extends State<TeacherDashboard> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(child: Text(cls.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+            // Enrollment info button
+            IconButton(
+              icon: const Icon(Icons.key_outlined, color: AppColors.teacherColor, size: 20),
+              tooltip: 'Enrollment credentials',
+              onPressed: () => _showEnrollmentInfo(cls),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+            const SizedBox(width: 8),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
               tooltip: 'Delete class',
@@ -241,22 +299,25 @@ class _AddClassSheetState extends State<AddClassSheet> {
   final LocationService _locationService = LocationService();
   final _formKey = GlobalKey<FormState>();
 
-  final _nameController     = TextEditingController();
-  final _codeController     = TextEditingController();
-  final _scheduleController = TextEditingController();
-  final _latController      = TextEditingController();
-  final _lngController      = TextEditingController();
-  final _radiusController   = TextEditingController(text: '80');
+  final _nameController       = TextEditingController();
+  final _codeController       = TextEditingController();
+  final _scheduleController   = TextEditingController();
+  final _latController        = TextEditingController();
+  final _lngController        = TextEditingController();
+  final _radiusController     = TextEditingController(text: '80');
+  final _passwordController   = TextEditingController(); // ← NEW
 
-  bool   _isLoading    = false;
-  bool   _isGettingGPS = false;
-  String _gpsStatus    = '';
+  bool   _isLoading      = false;
+  bool   _isGettingGPS   = false;
+  bool   _passwordVisible = false;         // ← NEW
+  String _gpsStatus      = '';
 
   @override
   void dispose() {
     _nameController.dispose(); _codeController.dispose();
     _scheduleController.dispose(); _latController.dispose();
     _lngController.dispose(); _radiusController.dispose();
+    _passwordController.dispose(); // ← NEW
     super.dispose();
   }
 
@@ -280,19 +341,20 @@ class _AddClassSheetState extends State<AddClassSheet> {
     setState(() => _isLoading = true);
     try {
       await _db.collection('classes').add({
-        'name':             _nameController.text.trim(),
-        'code':             _codeController.text.trim(),
-        'teacherId':        widget.teacher.uid,
-        'teacherName':      widget.teacher.name,
-        'department':       widget.teacher.department,
-        'schedule':         _scheduleController.text.trim(),
+        'name':                _nameController.text.trim(),
+        'code':                _codeController.text.trim(),
+        'teacherId':           widget.teacher.uid,
+        'teacherName':         widget.teacher.name,
+        'department':          widget.teacher.department,
+        'schedule':            _scheduleController.text.trim(),
         'location': {
           'lat': double.tryParse(_latController.text.trim()) ?? 0.0,
           'lng': double.tryParse(_lngController.text.trim()) ?? 0.0,
         },
-        'radiusMeters':     double.tryParse(_radiusController.text.trim()) ?? 80.0,
-        'enrolledStudents': [],
-        'totalSessions':    0,
+        'radiusMeters':        double.tryParse(_radiusController.text.trim()) ?? 80.0,
+        'enrolledStudents':    [],
+        'totalSessions':       0,
+        'enrollmentPassword':  _passwordController.text.trim(), // ← NEW
       });
       setState(() => _isLoading = false);
       if (mounted) {
@@ -357,6 +419,37 @@ class _AddClassSheetState extends State<AddClassSheet> {
                 Expanded(child: _field(_scheduleController, 'Schedule', 'Mon/Wed 10AM',
                     Icons.schedule, validator: (v) => v!.isEmpty ? 'Required' : null)),
               ]),
+              const SizedBox(height: 14),
+
+              // ── Enrollment Password ───────────────────────────────
+              TextFormField(
+                controller: _passwordController,
+                obscureText: !_passwordVisible,
+                decoration: InputDecoration(
+                  labelText: 'Enrollment Password',
+                  hintText: 'e.g. cs401pass',
+                  prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                  suffixIcon: IconButton(
+                    icon: Icon(_passwordVisible ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
+                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: AppColors.teacherColor, width: 2)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Enter an enrollment password';
+                  if (v.length < 4) return 'Min 4 characters';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Share this password with students so they can enroll in this class.',
+                style: TextStyle(color: Colors.grey, fontSize: 11),
+              ),
               const SizedBox(height: 20),
 
               // GPS Section

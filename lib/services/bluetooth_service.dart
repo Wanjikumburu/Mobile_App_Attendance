@@ -1,15 +1,17 @@
 // lib/services/bluetooth_service.dart
 // Teacher: broadcast BT beacon | Student: detect beacon
+// NOTE: Bluetooth is a SECONDARY check — GPS is the primary verification.
+// If Bluetooth is unavailable or fails, attendance can still be marked via GPS.
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:async';
 
 class BluetoothService {
-  // Unique ID that identifies this app's beacon
-  static const String _beaconServiceUUID = 'ATTENDX-BEACON-2026';
+  // Valid UUID format required by flutter_blue_plus
+  static const String _beaconServiceUUID =
+      '550e8400-e29b-41d4-a716-446655440000';
 
   StreamSubscription? _scanSubscription;
-  bool _beaconDetected = false;
 
   // ────────────────────────────────────────────────────────────
   // CHECK BLUETOOTH AVAILABILITY
@@ -19,7 +21,8 @@ class BluetoothService {
       if (!await FlutterBluePlus.isSupported) {
         return BluetoothStatus.notSupported;
       }
-      BluetoothAdapterState state = await FlutterBluePlus.adapterState.first;
+      BluetoothAdapterState state =
+          await FlutterBluePlus.adapterState.first;
       if (state == BluetoothAdapterState.on) return BluetoothStatus.on;
       return BluetoothStatus.off;
     } catch (e) {
@@ -28,61 +31,48 @@ class BluetoothService {
   }
 
   // ────────────────────────────────────────────────────────────
-  // TEACHER — START BROADCASTING BEACON
-  // Teacher's phone advertises itself so students can detect it
+  // TEACHER — START BEACON
+  // Note: FlutterBluePlus does not support BLE advertising on Android.
+  // This is a no-op that returns false gracefully — the session
+  // still opens and students can mark via GPS alone.
   // ────────────────────────────────────────────────────────────
   Future<bool> startBeacon(String sessionId) async {
-    try {
-      BluetoothStatus status = await checkStatus();
-      if (status != BluetoothStatus.on) return false;
-
-      // FlutterBluePlus handles advertisement on supported devices
-      // The sessionId is broadcast as the beacon identifier
-      await FlutterBluePlus.startScan(
-        withServices: [Guid(_beaconServiceUUID)],
-        timeout: const Duration(seconds: 1),
-      );
-      print('📡 Beacon started for session: $sessionId');
-      return true;
-    } catch (e) {
-      print('Beacon start error: $e');
-      return false;
-    }
+    print('📡 Bluetooth beacon not supported on this platform — GPS only mode');
+    return false;
   }
 
   // Stop broadcasting
   Future<void> stopBeacon() async {
     try {
       await FlutterBluePlus.stopScan();
-      print('📡 Beacon stopped');
     } catch (e) {
-      print('Beacon stop error: $e');
+      // Ignore errors on stop
     }
   }
 
   // ────────────────────────────────────────────────────────────
   // STUDENT — SCAN FOR TEACHER'S BEACON
-  // Returns true if teacher's beacon is detected nearby
+  // Returns detected if any BT device is nearby (proximity check)
+  // This is optional — GPS alone is sufficient to mark attendance
   // ────────────────────────────────────────────────────────────
   Future<BeaconResult> scanForBeacon(String sessionId) async {
     try {
       BluetoothStatus status = await checkStatus();
-      if (status == BluetoothStatus.notSupported)
+      if (status == BluetoothStatus.notSupported) {
         return BeaconResult.notSupported;
-      if (status == BluetoothStatus.off) return BeaconResult.bluetoothOff;
+      }
+      if (status == BluetoothStatus.off) {
+        return BeaconResult.bluetoothOff;
+      }
 
-      _beaconDetected = false;
       Completer<BeaconResult> completer = Completer();
 
-      // Scan for nearby BT devices for 5 seconds
-      _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
+      _scanSubscription =
+          FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult r in results) {
-          // Look for teacher's device broadcasting our beacon UUID
-          // In production: match by sessionId in advertisement data
           if (r.rssi > -80) {
             // -80 dBm = reasonable proximity (~10m)
-            _beaconDetected = true;
-            print('📶 Beacon detected! RSSI: ${r.rssi}');
+            print('📶 Nearby device detected! RSSI: ${r.rssi}');
             if (!completer.isCompleted) {
               completer.complete(BeaconResult.detected);
             }
@@ -90,12 +80,10 @@ class BluetoothService {
         }
       });
 
-      // Start scanning
       await FlutterBluePlus.startScan(
         timeout: const Duration(seconds: 5),
       );
 
-      // Wait for scan to finish or beacon to be found
       await Future.delayed(const Duration(seconds: 5));
       await _scanSubscription?.cancel();
       await FlutterBluePlus.stopScan();
@@ -111,7 +99,6 @@ class BluetoothService {
     }
   }
 
-  // Clean up
   void dispose() {
     _scanSubscription?.cancel();
     FlutterBluePlus.stopScan();
@@ -121,9 +108,9 @@ class BluetoothService {
 enum BluetoothStatus { on, off, notSupported }
 
 enum BeaconResult {
-  detected,       // ✅ teacher's beacon found nearby
-  notDetected,    // ❌ no beacon found in range
-  bluetoothOff,   // BT is off on device
-  notSupported,   // device has no BT
-  error,          // something went wrong
+  detected,      // ✅ device found nearby
+  notDetected,   // no device found in range
+  bluetoothOff,  // BT is off
+  notSupported,  // device has no BT
+  error,         // something went wrong
 }
